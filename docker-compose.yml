@@ -1,11 +1,14 @@
 services:
   seeding-checker-ui:
+    # 方式一：本地构建（改了代码用这个）
     build:
       context: .
       args:
         # 基础镜像源，默认官方源（需 Docker 走代理）；无代理环境可覆盖：
         # PY_IMAGE=docker.1ms.run/library/python:3.11-slim docker compose up -d --build
         PY_IMAGE: ${PY_IMAGE:-python:3.11-slim}
+    # 方式二：直接用已发布镜像（不想本地构建就注释掉上面的 build 段，改用下面这行）
+    # image: ghcr.io/wodty/seeding-checker-ui:latest
     container_name: seeding-checker-ui
     restart: unless-stopped          # 开机自启 + 崩溃自动重启
     ports:

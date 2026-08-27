@@ -1,0 +1,111 @@
+name: Build & Publish Docker Image
+
+# 触发条件：
+#   1. main 分支推送（改动核心代码/依赖时自动重新构建）
+#   2. 推送 v* 标签（发版，如 git tag v1.0.0 && git push --tags）
+#   3. 手动触发（Actions 页面 → Run workflow）
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'Dockerfile'
+      - 'app.py'
+      - 'checker.py'
+      - 'qb_client.py'
+      - 'deleter.py'
+      - 'requirements.txt'
+      - 'static/**'
+      - '.github/workflows/docker-publish.yml'
+  workflow_dispatch:
+
+# 把 secret 转成 env，供步骤级 if 判断（未配置 Docker Hub 密钥时自动跳过，不影响 GHCR 发布）
+env:
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU（arm64 交叉构建）
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ---------- GHCR（github.com/wodty/seeding-checker-ui 所属，用内置 token，零配置） ----------
+      - name: Docker meta (GHCR)
+        id: meta_ghcr
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push (GHCR)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta_ghcr.outputs.tags }}
+          labels: ${{ steps.meta_ghcr.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ---------- Docker Hub（需在仓库 Secrets 配置 DOCKERHUB_USERNAME / DOCKERHUB_TOKEN） ----------
+      - name: Docker meta (Docker Hub)
+        if: env.DOCKERHUB_USERNAME != ''
+        id: meta_dockerhub
+        uses: docker/metadata-action@v5
+        with:
+          images: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/seeding-checker-ui
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Login to Docker Hub
+        if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & push (Docker Hub)
+        if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta_dockerhub.outputs.tags }}
+          cache-from: type=gha
+
+      - name: Summary
+        run: |
+          echo "### 发布结果" >> $GITHUB_STEP_SUMMARY
+          echo "- GHCR: https://github.com/${{ github.repository }}/pkgs/container/seeding-checker-ui" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$DOCKERHUB_USERNAME" ]; then
+            echo "- Docker Hub: docker.io/$DOCKERHUB_USERNAME/seeding-checker-ui" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- Docker Hub: 已跳过（未配置 DOCKERHUB_USERNAME / DOCKERHUB_TOKEN 密钥）" >> $GITHUB_STEP_SUMMARY
+          fi

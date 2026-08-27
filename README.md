@@ -52,6 +52,28 @@ docker compose up -d --build     # 老版本 NAS 用 docker-compose up -d --buil
 
 完整部署步骤（文件拷贝、路径挂载、开机自启、常见问题）见 [deploy_nas.md](deploy_nas.md)。
 
+### 直接使用已发布的镜像（无需本地构建）
+
+镜像由 GitHub Actions 自动构建并多架构发布（amd64 / arm64）：
+
+| 仓库 | 地址 |
+|------|------|
+| GHCR | `ghcr.io/wodty/seeding-checker-ui:latest` |
+| Docker Hub | `docker.io/<用户名>/seeding-checker-ui:latest`（见 Packages 说明） |
+
+```bash
+docker run -d --name seeding-checker-ui \
+  -p 8000:8000 \
+  -v $(pwd)/config.ini:/app/config.ini \
+  -v /path/to/downloads:/path/to/downloads \
+  -v $(pwd)/trash:/app/trash \
+  ghcr.io/wodty/seeding-checker-ui:latest
+```
+
+> 用已发布镜像时，把 `docker-compose.yml` 里的 `build: .` 整段替换为
+> `image: ghcr.io/wodty/seeding-checker-ui:latest` 即可，挂载与配置完全相同。
+> 版本发布：打 tag 触发（`git tag v1.0.0 && git push --tags`），会生成 `v1.0.0` / `1.0` / `latest` 等标签。
+
 ## 配置说明（config.ini）
 
 ```ini
