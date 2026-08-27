@@ -57,7 +57,7 @@ def scan_nas(directories, exclude_dirs=None, size_threshold_mb=0, ignore_links=T
     results = []
     seen = set()
     seen_inodes = set()
-    stats = {"files": 0, "links_skipped": 0, "errors": 0, "dirs": 0}
+    stats = {"files": 0, "links_skipped": 0, "symlinks_skipped": 0, "hardlinks_skipped": 0, "errors": 0, "dirs": 0}
 
     for root_dir in directories:
         root_dir = root_dir.rstrip("/\\")
@@ -77,6 +77,7 @@ def scan_nas(directories, exclude_dirs=None, size_threshold_mb=0, ignore_links=T
                     if ignore_links:
                         if os.path.islink(fpath):
                             stats["links_skipped"] += 1
+                            stats["symlinks_skipped"] += 1
                             continue
                         # 对硬链接只保留第一次出现的 inode，避免重复统计；
                         # 后续指向同一 inode 的其他路径才跳过。
@@ -86,6 +87,7 @@ def scan_nas(directories, exclude_dirs=None, size_threshold_mb=0, ignore_links=T
                             inode = (st.st_dev, st.st_ino)
                             if inode in seen_inodes:
                                 stats["links_skipped"] += 1
+                                stats["hardlinks_skipped"] += 1
                                 continue
                             seen_inodes.add(inode)
                     else:
@@ -108,8 +110,9 @@ def scan_nas(directories, exclude_dirs=None, size_threshold_mb=0, ignore_links=T
                 except OSError as e:
                     stats["errors"] += 1
                     logger.debug("扫描文件失败 %s: %s", fpath, e)
-    logger.info("NAS 扫描完成: %d 个文件, %d 个目录, 跳过链接 %d, 错误 %d",
-                stats["files"], stats["dirs"], stats["links_skipped"], stats["errors"])
+    logger.info("NAS 扫描完成: %d 个文件, %d 个目录, 跳过软链接 %d, 跳过硬链接重复 %d, 错误 %d",
+                stats["files"], stats["dirs"], stats["symlinks_skipped"],
+                stats["hardlinks_skipped"], stats["errors"])
     return results, stats
 
 
@@ -119,6 +122,50 @@ def human_size(num):
             return f"{num:.1f} {unit}" if unit != "B" else f"{int(num)} B"
         num /= 1024.0
     return f"{num:.1f} PB"
+
+
+def suggest_path_mappings(nas_files, seeding_torrents, max_records=3000):
+    """
+    根据「同名且同大小」的文件对应关系，自动推断可能的路径映射
+    path_mappings（qB 下载器路径前缀=NAS 路径前缀），用于排查配置问题。
+    :return: list[dict] {qb_prefix, nas_prefix, matches}，按匹配文件数降序
+    """
+    from collections import defaultdict
+    index = defaultdict(list)
+    for f in nas_files:
+        p = f["path"].replace("\\", "/")
+        index[(p.rsplit("/", 1)[-1], f.get("size"))].append(p)
+
+    votes = {}
+    for i, t in enumerate(seeding_torrents):
+        if i >= max_records:
+            break
+        qb_path = (t.get("original_path") or t.get("nas_path") or "").replace("\\", "/")
+        if not qb_path:
+            continue
+        name = t.get("file_name") or qb_path.rsplit("/", 1)[-1]
+        size = t.get("file_size") or 0
+        for nas_path in index.get((name, size), []):
+            a = qb_path.split("/")
+            b = nas_path.split("/")
+            k = 0
+            while k < len(a) and k < len(b) and a[len(a) - 1 - k] == b[len(b) - 1 - k]:
+                k += 1
+            if k == 0:
+                continue
+            qb_prefix = "/".join(a[: len(a) - k])
+            nas_prefix = "/".join(b[: len(b) - k])
+            if not qb_prefix or not nas_prefix or qb_prefix == nas_prefix:
+                continue
+            votes[(qb_prefix, nas_prefix)] = votes.get((qb_prefix, nas_prefix), 0) + 1
+
+    result = [
+        {"qb_prefix": q, "nas_prefix": n, "matches": c}
+        for (q, n), c in sorted(votes.items(), key=lambda x: -x[1])[:5]
+    ]
+    if result:
+        logger.info("推断的路径映射建议: %s", result)
+    return result
 
 
 # ---------- 检测 ----------

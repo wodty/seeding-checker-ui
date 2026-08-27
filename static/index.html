@@ -139,6 +139,7 @@
   <header>
     <h1><span class="dot offline" id="connDot"></span> Seeding Checker <span class="muted" style="font-size:13px;font-weight:400">NAS 做种检查器</span></h1>
     <span class="demo-badge" id="demoBadge">演示模式</span>
+    <span class="muted" id="verBadge" style="font-size:12px">v?</span>
   </header>
 
   <!-- 配置 -->
@@ -179,6 +180,14 @@
     <div class="stat danger"><div class="lbl">冗余文件（可清理）</div><div class="num" id="sRedundant">-</div></div>
     <div class="stat warn"><div class="lbl">缺失文件（可移除种子）</div><div class="num" id="sMissing">-</div></div>
     <div class="stat accent"><div class="lbl">异常状态种子</div><div class="num" id="sAbnormal">-</div></div>
+  </div>
+
+  <!-- 诊断 -->
+  <div class="card" id="diagCard" style="display:none; border-color:#fde68a; background:var(--warn-weak)">
+    <div class="card-hd" style="color:var(--warn)">⚠ 路径匹配诊断
+      <button class="btn sm" onclick="document.getElementById('diagCard').style.display='none'">关闭</button>
+    </div>
+    <div class="card-bd" id="diagBody" style="font-size:13px; line-height:1.8; background:#fff; border-radius:8px"></div>
   </div>
 
   <!-- 结果 -->
@@ -348,13 +357,68 @@ function renderSummary() {
   $("cntRedundant").textContent = s.redundant;
   $("cntMissing").textContent = s.missing;
   $("cntAbnormal").textContent = s.abnormal;
-  $("barRedInfo").textContent = `共 ${s.redundant} 个冗余文件（${s.redundant_total}），NAS 文件 ${s.nas_files} 个 / ${s.nas_dirs} 个目录，跳过链接 ${s.nas_links_skipped} 个，错误 ${s.nas_errors} 个，种子 ${s.torrents} 个 · ${s.scan_time}`;
+  const symLk = s.nas_symlinks_skipped ?? "-", hdLk = s.nas_hardlinks_skipped ?? "-";
+  $("barRedInfo").textContent = `共 ${s.redundant} 个冗余文件（${s.redundant_total}），NAS 文件 ${s.nas_files} 个 / ${s.nas_dirs} 个目录，跳过软链接 ${symLk} 个 / 硬链接重复 ${hdLk} 个，错误 ${s.nas_errors} 个 · ${s.scan_time}`;
   $("barMissInfo").textContent = `共 ${s.missing} 个缺失文件（${s.missing_total}），涉及 ${s.missing_torrents} 个种子 · ${s.scan_time}`;
   $("barAbnInfo").textContent = `共 ${s.abnormal} 个异常状态种子（${s.abnormal_total || "-"}），状态为 error / missingFiles · ${s.scan_time}`;
   $("btnDelAllRed").disabled = s.redundant === 0;
   $("btnDelAllMiss").disabled = s.missing === 0;
   $("btnDelAllAbn").disabled = s.abnormal === 0;
   $("connDot").classList.remove("offline");
+  renderDiag();
+}
+
+// ---------- 诊断 ----------
+function renderDiag() {
+  const s = S.summary, d = s && s.diag;
+  const card = $("diagCard"), body = $("diagBody");
+  if (!d) { card.style.display = "none"; return; }
+  const suggest = d.suggest_mappings || [];
+  const lowRate = s.torrents > 0 && d.match_rate < 90;
+  if (!lowRate && !suggest.length && !(d.qb_samples || []).length) { card.style.display = "none"; return; }
+  card.style.display = "";
+  let html = "";
+  html += `<div class="kv"><span>路径匹配率</span><b>${d.match_rate}%（${d.matched_files} / ${s.nas_files} 个 NAS 文件能对应到 qB 种子）</b></div>`;
+  if (suggest.length) {
+    html += `<div style="margin:10px 0 4px; font-weight:600">检测到疑似路径映射（依据同名同大小文件推断）：</div>`;
+    suggest.forEach(m => {
+      html += `<div style="display:flex; align-items:center; gap:10px; margin:6px 0; flex-wrap:wrap">
+        <code style="background:#f1f3f5; padding:4px 10px; border-radius:6px; word-break:break-all">${esc(m.qb_prefix)}=${esc(m.nas_prefix)}</code>
+        <span class="muted">依据 ${m.matches} 个文件</span>
+        <button class="btn sm" data-q="${esc(m.qb_prefix)}" data-n="${esc(m.nas_prefix)}" onclick="applyMap(this.dataset.q, this.dataset.n)">填入路径映射</button>
+      </div>`;
+    });
+    html += `<div class="muted" style="font-size:12px">点击「填入路径映射」后，记得点「保存配置」并重新扫描。</div>`;
+  } else if (lowRate) {
+    html += `<div style="margin:8px 0; color:var(--danger)">未能自动推断路径映射，且匹配率偏低 —— 请核对 qB save_path 与 NAS 扫描路径的前缀是否一致（展开下方样例对比）。</div>`;
+  }
+  if (d.qb_save_paths && d.qb_save_paths.length) {
+    html += `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer">查看路径样例（qB save_path / 双方未匹配路径对比）</summary>
+      <div style="margin-top:6px"><b>qB save_path：</b></div>
+      ${d.qb_save_paths.map(p => `<div class="path-cell">${esc(p)}</div>`).join("")}
+      <div style="margin-top:6px"><b>NAS 未匹配样例：</b></div>
+      ${(d.nas_samples || []).map(p => `<div class="path-cell">${esc(p)}</div>`).join("") || "<div class='muted'>(无)</div>"}
+      <div style="margin-top:6px"><b>qB 未匹配样例（已映射）：</b></div>
+      ${(d.qb_samples || []).map(p => `<div class="path-cell">${esc(p)}</div>`).join("") || "<div class='muted'>(无)</div>"}
+    </details>`;
+  }
+  body.innerHTML = html;
+}
+function applyMap(q, n) {
+  const cur = $("fMapping").value.trim();
+  const item = `${q}=${n}`;
+  if (cur.split(/[,，]/).map(x => x.trim()).includes(item)) { toast("该映射已存在"); return; }
+  $("fMapping").value = cur ? cur + "," + item : item;
+  toast("已填入，请点击「保存配置」后重新扫描", "ok");
+}
+async function loadVersion() {
+  try {
+    const v = await api("/api/version");
+    $("verBadge").textContent = "v" + v.version;
+  } catch (e) {
+    $("verBadge").textContent = "旧版本？";
+    $("verBadge").style.color = "var(--warn)";
+  }
 }
 
 // ---------- 表格 ----------
@@ -560,6 +624,7 @@ function toggleCfg() {
 }
 
 loadCfg();
+loadVersion();
 </script>
 </body>
 </html>

@@ -42,6 +42,9 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 CONFIG_PATH = Path(os.environ.get("CONFIG_FILE", BASE_DIR / "config.ini"))
 
+# 版本号：用于确认容器内运行的是最新代码（旧版本没有 /api/version 端点）
+APP_VERSION = "1.3.0"
+
 DEFAULT_CONFIG = """[general]
 # NAS 目录（逗号分隔）
 nas_directories = /path/to/dir1, /path/to/dir2
@@ -241,6 +244,11 @@ def index():
     return FileResponse(str(STATIC_DIR / "index.html"))
 
 
+@app.get("/api/version")
+def api_version():
+    return {"version": APP_VERSION}
+
+
 @app.get("/api/config")
 def api_get_config():
     return config_to_dict(load_config())
@@ -306,6 +314,23 @@ def api_scan():
                 nas_dirs, cfg.get("qb", "path_mappings", fallback=""),
                 cfg.getboolean("general", "ignore_links", fallback=True))
     logger.info("NAS 路径样例(前10): %s", [f["path"].replace("\\", "/") for f in nas_files[:10]])
+
+    # 3.1 路径匹配诊断：用于排查 path_mappings 配置错误导致的误判
+    nas_path_set = set(f["path"].replace("\\", "/") for f in nas_files)
+    matched_files = len(nas_path_set & seeding_paths)
+    match_rate = round(matched_files * 100.0 / len(nas_path_set), 1) if nas_path_set else 0.0
+    diag = {
+        "matched_files": matched_files,
+        "match_rate": match_rate,
+        "qb_save_paths": sorted({(t.get("save_path") or "") for t in seeding_torrents
+                                 if t.get("save_path")})[:10],
+        "nas_samples": sorted(p for p in nas_path_set if p not in seeding_paths)[:5],
+        "qb_samples": sorted(p for p in seeding_paths if p not in nas_path_set)[:5],
+        "suggest_mappings": checker.suggest_path_mappings(nas_files, seeding_torrents),
+    }
+    logger.info("路径匹配诊断: %d/%d 个 NAS 文件匹配 qB 种子 (%.1f%%)",
+                matched_files, len(nas_path_set), match_rate)
+
     redundant = checker.detect_redundant(nas_files, seeding_paths)
     missing = checker.detect_missing(seeding_torrents, [f["path"] for f in nas_files], nas_dirs)
     abnormal = checker.detect_abnormal(seeding_torrents)
@@ -319,7 +344,11 @@ def api_scan():
         "nas_total": checker.human_size(sum(f["size"] for f in nas_files)),
         "nas_dirs": nas_stats.get("dirs", 0),
         "nas_links_skipped": nas_stats.get("links_skipped", 0),
+        "nas_symlinks_skipped": nas_stats.get("symlinks_skipped", 0),
+        "nas_hardlinks_skipped": nas_stats.get("hardlinks_skipped", 0),
         "nas_errors": nas_stats.get("errors", 0),
+        "version": APP_VERSION,
+        "diag": diag,
         "torrents": len(set(t["torrent_hash"] for t in seeding_torrents)),
         "seeding_files": len(seeding_paths),
         "redundant": len(redundant),
