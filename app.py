@@ -317,6 +317,9 @@ def api_scan():
     summary = {
         "nas_files": len(nas_files),
         "nas_total": checker.human_size(sum(f["size"] for f in nas_files)),
+        "nas_dirs": nas_stats.get("dirs", 0),
+        "nas_links_skipped": nas_stats.get("links_skipped", 0),
+        "nas_errors": nas_stats.get("errors", 0),
         "torrents": len(set(t["torrent_hash"] for t in seeding_torrents)),
         "seeding_files": len(seeding_paths),
         "redundant": len(redundant),
@@ -327,7 +330,6 @@ def api_scan():
         "abnormal": len(abnormal),
         "abnormal_total": checker.human_size(abnormal_total),
         "scan_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "nas_dirs": nas_dirs,
         "demo": _demo,
     }
     _last_result = {"redundant": redundant, "missing": missing, "abnormal": abnormal, "summary": summary}

@@ -154,7 +154,7 @@
           <input id="fExclude" placeholder="/vol1/data/temp"></div>
         <div class="field"><label>大小阈值 MB（0=全部）</label><input id="fThreshold" type="number" value="0"></div>
         <div class="field"><label>回收目录（移回收站时使用）</label><input id="fTrash" placeholder="./trash"></div>
-        <div class="field" style="display:flex;align-items:flex-end"><label style="cursor:pointer"><input id="fIgnoreLinks" type="checkbox" checked style="width:auto;vertical-align:-2px;margin-right:6px">忽略软链接/硬链接</label></div>
+        <div class="field" style="display:flex;align-items:flex-end"><label style="cursor:pointer" title="勾选时跳过软链接；对硬链接只保留第一次出现的文件（避免重复统计），取消勾选则按文件管理器逻辑统计所有路径"><input id="fIgnoreLinks" type="checkbox" checked style="width:auto;vertical-align:-2px;margin-right:6px">忽略软链接/硬链接</label></div>
         <div class="field"><label>qB 地址</label><input id="fHost" placeholder="192.168.1.100"></div>
         <div class="field"><label>qB 端口</label><input id="fPort" placeholder="8080"></div>
         <div class="field"><label>qB 用户名</label><input id="fUser" placeholder="admin"></div>
@@ -348,7 +348,7 @@ function renderSummary() {
   $("cntRedundant").textContent = s.redundant;
   $("cntMissing").textContent = s.missing;
   $("cntAbnormal").textContent = s.abnormal;
-  $("barRedInfo").textContent = `共 ${s.redundant} 个冗余文件（${s.redundant_total}），NAS 文件 ${s.nas_files} 个，种子 ${s.torrents} 个 · ${s.scan_time}`;
+  $("barRedInfo").textContent = `共 ${s.redundant} 个冗余文件（${s.redundant_total}），NAS 文件 ${s.nas_files} 个 / ${s.nas_dirs} 个目录，跳过链接 ${s.nas_links_skipped} 个，错误 ${s.nas_errors} 个，种子 ${s.torrents} 个 · ${s.scan_time}`;
   $("barMissInfo").textContent = `共 ${s.missing} 个缺失文件（${s.missing_total}），涉及 ${s.missing_torrents} 个种子 · ${s.scan_time}`;
   $("barAbnInfo").textContent = `共 ${s.abnormal} 个异常状态种子（${s.abnormal_total || "-"}），状态为 error / missingFiles · ${s.scan_time}`;
   $("btnDelAllRed").disabled = s.redundant === 0;

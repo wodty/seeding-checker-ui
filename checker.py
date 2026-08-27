@@ -56,6 +56,7 @@ def scan_nas(directories, exclude_dirs=None, size_threshold_mb=0, ignore_links=T
     threshold = int(size_threshold_mb or 0) * 1024 * 1024
     results = []
     seen = set()
+    seen_inodes = set()
     stats = {"files": 0, "links_skipped": 0, "errors": 0, "dirs": 0}
 
     for root_dir in directories:
@@ -73,13 +74,22 @@ def scan_nas(directories, exclude_dirs=None, size_threshold_mb=0, ignore_links=T
             for fname in filenames:
                 fpath = os.path.join(dirpath, fname)
                 try:
-                    if ignore_links and os.path.islink(fpath):
-                        stats["links_skipped"] += 1
-                        continue
-                    st = os.stat(fpath, follow_symlinks=not ignore_links)
-                    if ignore_links and getattr(st, "st_nlink", 1) > 1:
-                        stats["links_skipped"] += 1
-                        continue
+                    if ignore_links:
+                        if os.path.islink(fpath):
+                            stats["links_skipped"] += 1
+                            continue
+                        # 对硬链接只保留第一次出现的 inode，避免重复统计；
+                        # 后续指向同一 inode 的其他路径才跳过。
+                        st = os.stat(fpath, follow_symlinks=False)
+                        nlink = getattr(st, "st_nlink", 1)
+                        if nlink > 1:
+                            inode = (st.st_dev, st.st_ino)
+                            if inode in seen_inodes:
+                                stats["links_skipped"] += 1
+                                continue
+                            seen_inodes.add(inode)
+                    else:
+                        st = os.stat(fpath, follow_symlinks=True)
                     if threshold and st.st_size < threshold:
                         continue
                     norm = os.path.normpath(fpath).replace("\\", "/")
