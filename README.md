@@ -89,7 +89,7 @@ host = 192.168.1.100                         # qBittorrent 地址
 port = 8080
 username = admin
 password = admin
-path_mappings = /downloads=/vol1/data        # 容器路径=NAS路径（逗号分隔）
+path_mappings = /downloads=/vol1/data        # qb容器路径=NAS路径（逗号分隔）,
 torrent_backup_dir =                          # qB BT_backup 目录（可选，用于清理 .torrent）
 ```
 
