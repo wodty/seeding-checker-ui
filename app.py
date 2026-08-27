@@ -43,7 +43,7 @@ STATIC_DIR = BASE_DIR / "static"
 CONFIG_PATH = Path(os.environ.get("CONFIG_FILE", BASE_DIR / "config.ini"))
 
 # 版本号：用于确认容器内运行的是最新代码（旧版本没有 /api/version 端点）
-APP_VERSION = "1.3.2"
+APP_VERSION = "1.3.3"
 
 DEFAULT_CONFIG = """[general]
 # NAS 目录（逗号分隔）
@@ -319,11 +319,18 @@ def api_scan():
     nas_path_set = set(f["path"].replace("\\", "/") for f in nas_files)
     matched_files = len(nas_path_set & seeding_paths)
     match_rate = round(matched_files * 100.0 / len(nas_path_set), 1) if nas_path_set else 0.0
+    # qB 全部 save_path 及是否在 NAS 扫描范围内（范围外路径不会出现在扫描结果里）
+    nas_dirs_norm = [d.replace("\\", "/").rstrip("/") for d in nas_dirs]
+    all_qb_save_paths = sorted({(t.get("save_path") or "").replace("\\", "/").rstrip("/")
+                                for t in seeding_torrents if t.get("save_path")})
+    qb_save_paths = [{
+        "path": p,
+        "in_scope": any(p == d or p.startswith(d + "/") for d in nas_dirs_norm),
+    } for p in all_qb_save_paths]
     diag = {
         "matched_files": matched_files,
         "match_rate": match_rate,
-        "qb_save_paths": sorted({(t.get("save_path") or "") for t in seeding_torrents
-                                 if t.get("save_path")})[:10],
+        "qb_save_paths": qb_save_paths,
         "nas_samples": sorted(p for p in nas_path_set if p not in seeding_paths)[:5],
         "qb_samples": sorted(p for p in seeding_paths if p not in nas_path_set)[:5],
         "suggest_mappings": checker.suggest_path_mappings(nas_files, seeding_torrents),

@@ -375,7 +375,8 @@ function renderDiag() {
   if (!d) { card.style.display = "none"; return; }
   const suggest = d.suggest_mappings || [];
   const lowRate = s.torrents > 0 && d.match_rate < 90;
-  if (!lowRate && !suggest.length && !(d.qb_samples || []).length) { card.style.display = "none"; return; }
+  const outPaths = (d.qb_save_paths || []).filter(p => !p.in_scope);
+  if (!lowRate && !suggest.length && !(d.qb_samples || []).length && !outPaths.length) { card.style.display = "none"; return; }
   card.style.display = "";
   let html = "";
   html += `<div class="kv"><span>路径匹配率</span><b>${d.match_rate}%（${d.matched_files} / ${s.nas_files} 个 NAS 文件能对应到 qB 种子）</b></div>`;
@@ -393,9 +394,11 @@ function renderDiag() {
     html += `<div style="margin:8px 0; color:var(--danger)">未能自动推断路径映射，且匹配率偏低 —— 请核对 qB save_path 与 NAS 扫描路径的前缀是否一致（展开下方样例对比）。</div>`;
   }
   if (d.qb_save_paths && d.qb_save_paths.length) {
-    html += `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer">查看路径样例（qB save_path / 双方未匹配路径对比）</summary>
-      <div style="margin-top:6px"><b>qB save_path：</b></div>
-      ${d.qb_save_paths.map(p => `<div class="path-cell">${esc(p)}</div>`).join("")}
+    const outNote = outPaths.length ? ` · <span style="color:var(--warn)">${outPaths.length} 个不在扫描范围</span>` : "";
+    html += `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer">查看路径样例（qB save_path / 双方未匹配路径对比）${outNote}</summary>
+      <div style="margin-top:6px"><b>qB save_path（共 ${d.qb_save_paths.length} 个）：</b></div>
+      ${d.qb_save_paths.map(p => `<div class="path-cell">${esc(p.path)} <span style="color:${p.in_scope ? "#16a34a" : "var(--warn)"}">${p.in_scope ? "✓ 扫描范围内" : "✗ 不在扫描范围"}</span></div>`).join("")}
+      ${outPaths.length ? `<div class="muted" style="font-size:12px; margin-top:4px">「不在扫描范围」= 该位置未挂载进本容器或未加入 NAS 目录配置，所以这些文件不会参与扫描、不会出现在结果里（不是 bug）。如需扫描，请在 docker-compose 中挂载对应目录，并加入 NAS 目录配置。</div>` : ""}
       <div style="margin-top:6px"><b>NAS 未匹配样例：</b></div>
       ${(d.nas_samples || []).map(p => `<div class="path-cell">${esc(p)}</div>`).join("") || "<div class='muted'>(无)</div>"}
       <div style="margin-top:6px"><b>qB 未匹配样例（已映射）：</b></div>
