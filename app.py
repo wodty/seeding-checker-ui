@@ -43,7 +43,7 @@ STATIC_DIR = BASE_DIR / "static"
 CONFIG_PATH = Path(os.environ.get("CONFIG_FILE", BASE_DIR / "config.ini"))
 
 # 版本号：用于确认容器内运行的是最新代码（旧版本没有 /api/version 端点）
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 
 DEFAULT_CONFIG = """[general]
 # NAS 目录（逗号分隔）

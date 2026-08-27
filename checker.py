@@ -62,6 +62,7 @@ def scan_nas(directories, exclude_dirs=None, size_threshold_mb=0, ignore_links=T
     for root_dir in directories:
         root_dir = root_dir.rstrip("/\\")
         if not os.path.isdir(root_dir):
+            stats["errors"] += 1
             logger.warning("NAS 目录不存在，跳过: %s", root_dir)
             continue
         logger.info("开始扫描目录: %s", root_dir)
