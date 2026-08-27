@@ -143,7 +143,9 @@ def suggest_path_mappings(nas_files, seeding_torrents, max_records=3000):
         qb_path = (t.get("original_path") or t.get("nas_path") or "").replace("\\", "/")
         if not qb_path:
             continue
-        name = t.get("file_name") or qb_path.rsplit("/", 1)[-1]
+        # qB 的 file_name 是种子内相对路径（多文件种子形如 "Movie/file.mkv"），
+        # 而索引键是 NAS 路径的 basename，必须取末段文件名才能对上
+        name = (t.get("file_name") or qb_path.rsplit("/", 1)[-1]).rsplit("/", 1)[-1]
         size = t.get("file_size") or 0
         for nas_path in index.get((name, size), []):
             a = qb_path.split("/")
