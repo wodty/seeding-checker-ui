@@ -59,7 +59,7 @@ docker compose up -d --build     # 老版本 NAS 用 docker-compose up -d --buil
 | 仓库 | 地址 |
 |------|------|
 | GHCR | `ghcr.io/wodty/seeding-checker-ui:latest` |
-| Docker Hub | `docker.io/<用户名>/seeding-checker-ui:latest`（见 Packages 说明） |
+| Docker Hub | `docker.io/wodty/seeding-checker-ui:latest` |
 
 ```bash
 docker run -d --name seeding-checker-ui \
@@ -71,7 +71,7 @@ docker run -d --name seeding-checker-ui \
 ```
 
 > 用已发布镜像时，把 `docker-compose.yml` 里的 `build: .` 整段替换为
-> `image: ghcr.io/wodty/seeding-checker-ui:latest` 即可，挂载与配置完全相同。
+> `image: ghcr.io/wodty/seeding-checker-ui:latest`（或 `docker.io/wodty/seeding-checker-ui:latest`）即可，挂载与配置完全相同。
 > 版本发布：打 tag 触发（`git tag v1.0.0 && git push --tags`），会生成 `v1.0.0` / `1.0` / `latest` 等标签。
 
 ## 配置说明（config.ini）
