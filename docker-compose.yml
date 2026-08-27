@@ -1,0 +1,29 @@
+services:
+  seeding-checker-ui:
+    build:
+      context: .
+      args:
+        # 基础镜像源，默认官方源（需 Docker 走代理）；无代理环境可覆盖：
+        # PY_IMAGE=docker.1ms.run/library/python:3.11-slim docker compose up -d --build
+        PY_IMAGE: ${PY_IMAGE:-python:3.11-slim}
+    container_name: seeding-checker-ui
+    restart: unless-stopped          # 开机自启 + 崩溃自动重启
+    ports:
+      - "8000:8000"                  # 左边端口可改，如 "18000:8000"
+    volumes:
+      # 1) 配置文件（在 NAS 上改完重启容器即生效）
+      - ./config.ini:/app/config.ini
+      # 2) NAS 下载目录 → 容器内路径
+      #    ⚠️ 左侧必须是你的真实下载路径（先 ls -d 验证存在）！
+      #    右侧容器内路径 = config.ini 的 nas_directories，应与 qB 种子的 save_path 一致
+      #    例：- /volume1/downloads:/volume1/downloads
+      - /path/to/downloads:/path/to/downloads
+      # 3) 回收站目录持久化（移回收站的文件在这里，可恢复）
+      - ./trash:/app/trash
+      # 4) 可选：qBittorrent 的 BT_backup 目录（用于清理 .torrent 备份）
+      #    找到实际路径后取消注释，并在 config.ini 的 torrent_backup_dir 填容器内路径
+      # - /path/to/BT_backup:/app/bt_backup
+    environment:
+      - TZ=Asia/Shanghai
+    # 可选：限制内存，防 NAS 被扫描拖垮
+    # mem_limit: 512m

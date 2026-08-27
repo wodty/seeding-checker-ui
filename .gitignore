@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# 运行时产物
+trash/
+app.log
+*.log
+
+# 编辑器/系统
+.DS_Store
+.idea/
+.vscode/
