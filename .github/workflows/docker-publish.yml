@@ -13,6 +13,7 @@ on:
       - 'app.py'
       - 'checker.py'
       - 'qb_client.py'
+      - 'tr_client.py'
       - 'deleter.py'
       - 'requirements.txt'
       - 'static/**'
