@@ -76,6 +76,8 @@ docker run -d --name seeding-checker-ui \
 
 ## 配置说明（config.ini）
 
+支持**多个下载器实例**（qBittorrent / Transmission 混用），每个实例独立配置路径映射：
+
 ```ini
 [general]
 nas_directories = /vol1/data, /vol2/media   # NAS 目录（逗号分隔）
@@ -84,21 +86,38 @@ size_threshold = 0                           # 最小文件大小 MB（0=全部�
 trash_dir = ./trash                          # 回收目录（移回收站时使用）
 ignore_links = true                          # 忽略软/硬链接
 
-[qb]
+[downloader]
+# 启用的下载器实例 ID（逗号分隔），每个实例对应下方一个同名配置节
+enabled_clients = qb1, tr1
+
+[qb1]
+type = qbittorrent                           # 下载器类型: qbittorrent | transmission
 host = 192.168.1.100                         # qBittorrent 地址
 port = 8080
 username = admin
 password = admin
-path_mappings = /downloads=/vol1/data        # qb容器路径=NAS路径（逗号分隔）,
+path_mappings = /downloads=/vol1/data       # 该下载器内路径=NAS路径（逗号分隔）
 torrent_backup_dir =                          # qB BT_backup 目录（可选，用于清理 .torrent）
+
+[tr1]
+type = transmission
+host = 192.168.1.101
+port = 9091
+username = admin
+password = admin
+path_mappings = /downloads=/vol2/media
 ```
+
+> 旧版单实例 `[qb]` 配置无需手动迁移：程序读取时自动按实例 `qb` 处理，在 Web UI 保存一次配置后即升级为新格式。
+> 扫描时聚合所有实例的种子做统一判定；删除种子时按 hash 自动路由到所属下载器。单个实例连接失败不影响其他实例的扫描结果（诊断卡片会标出失败实例）。
 
 ## 项目结构
 
 ```
 seeding-checker-ui/
-├── app.py          # FastAPI 后端（API + 静态服务）
+├── app.py          # FastAPI 后端（API + 静态服务 + 多下载器聚合）
 ├── qb_client.py    # qBittorrent Web API v2 客户端
+├── tr_client.py    # Transmission RPC 客户端
 ├── checker.py      # NAS 扫描 + 冗余/缺失检测
 ├── deleter.py      # 删除逻辑（回收站/彻底删除/种子备份清理）
 ├── static/
@@ -116,12 +135,12 @@ seeding-checker-ui/
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | / | Web UI |
-| GET | /api/config | 读取配置 |
-| POST | /api/config | 保存配置 |
-| POST | /api/qb/test | 测试 qB 连接 |
-| POST | /api/scan | 执行扫描（冗余+缺失+异常） |
+| GET | /api/config | 读取配置（general + 下载器实例列表） |
+| POST | /api/config | 保存配置（含下载器实例增删改） |
+| POST | /api/clients/test | 逐个测试下载器连接（支持未保存的配置） |
+| POST | /api/scan | 执行扫描（冗余+缺失+异常，聚合全部下载器） |
 | POST | /api/delete-files | 删除冗余文件 `{paths, mode: trash\|permanent}` |
-| POST | /api/delete-torrents | 移除种子 `{hashes, delete_local_files, delete_torrent_backup}`（两个选项独立，删除本地文件危险） |
+| POST | /api/delete-torrents | 移除种子 `{hashes, delete_local_files, delete_torrent_backup}`（按 hash 路由到所属下载器，两个选项独立，删除本地文件危险） |
 
 ## 注意事项
 

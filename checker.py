@@ -160,11 +160,15 @@ def suggest_path_mappings(nas_files, seeding_torrents, max_records=3000):
             nas_prefix = "/".join(b[: len(b) - k])
             if not qb_prefix or not nas_prefix or qb_prefix == nas_prefix:
                 continue
-            votes[(qb_prefix, nas_prefix)] = votes.get((qb_prefix, nas_prefix), 0) + 1
+            key = (qb_prefix, nas_prefix)
+            if key in votes:
+                votes[key][0] += 1
+            else:
+                votes[key] = [1, t.get("client_id", "")]
 
     result = [
-        {"qb_prefix": q, "nas_prefix": n, "matches": c}
-        for (q, n), c in sorted(votes.items(), key=lambda x: -x[1])[:5]
+        {"qb_prefix": q, "nas_prefix": n, "matches": c, "client_id": cid}
+        for (q, n), (c, cid) in sorted(votes.items(), key=lambda x: -x[1][0])[:5]
     ]
     if result:
         logger.info("推断的路径映射建议: %s", result)

@@ -55,6 +55,38 @@ def sanitize_segment(name: str) -> str:
     return re.sub(r'[^a-zA-Z0-9/\._\-]', '_', name)
 
 
+def parse_path_mappings(path_mappings):
+    """解析 容器路径=NAS路径, 逗号分隔（兼容中英文逗号）"""
+    mappings = []
+    if not path_mappings:
+        return mappings
+    for item in re.split(r"[，,]", str(path_mappings)):
+        item = item.strip()
+        if not item or "=" not in item:
+            continue
+        src, dst = item.split("=", 1)
+        src, dst = src.strip().strip("/"), dst.strip()
+        if not src or not dst:
+            continue
+        mappings.append((src, dst))
+    return mappings
+
+
+def apply_path_mappings(file_path, mappings):
+    """将下载器内路径映射为 NAS 真实路径；无匹配则原样返回"""
+    if not file_path:
+        return file_path
+    norm = file_path.replace("\\", "/").lstrip("/")
+    for src, dst in mappings:
+        src_norm = src.lstrip("/")
+        if norm == src_norm:
+            return dst.rstrip("/")
+        if norm.startswith(src_norm + "/"):
+            rel = norm[len(src_norm) + 1:]
+            return os.path.join(dst.rstrip("/"), rel).replace("\\", "/")
+    return file_path
+
+
 class QBClient:
     def __init__(self, host, port, username, password, path_mappings=""):
         # 兼容 host 配置带/不带协议前缀（如 http://qb.example.com 或 qb.example.com）
@@ -72,41 +104,14 @@ class QBClient:
             "User-Agent": "seeding-checker-ui/1.0",
             "Referer": f"{self.base}/",
         })
-        self._mappings = self._parse_mappings(path_mappings)
+        self._mappings = parse_path_mappings(path_mappings)
         self.logged_in = False
 
     # ---------- 内部工具 ----------
 
-    @staticmethod
-    def _parse_mappings(path_mappings):
-        """解析 容器路径=NAS路径, 逗号分隔（兼容中英文逗号）"""
-        mappings = []
-        if not path_mappings:
-            return mappings
-        for item in re.split(r"[，,]", str(path_mappings)):
-            item = item.strip()
-            if not item or "=" not in item:
-                continue
-            src, dst = item.split("=", 1)
-            src, dst = src.strip().strip("/"), dst.strip()
-            if not src or not dst:
-                continue
-            mappings.append((src, dst))
-        return mappings
-
     def apply_path_mapping(self, file_path):
         """将下载器容器内路径映射为 NAS 真实路径；无匹配则原样返回"""
-        if not file_path:
-            return file_path
-        norm = file_path.replace("\\", "/").lstrip("/")
-        for src, dst in self._mappings:
-            src_norm = src.lstrip("/")
-            if norm == src_norm:
-                return dst.rstrip("/")
-            if norm.startswith(src_norm + "/"):
-                rel = norm[len(src_norm) + 1:]
-                return os.path.join(dst.rstrip("/"), rel).replace("\\", "/")
-        return file_path
+        return apply_path_mappings(file_path, self._mappings)
 
     # ---------- 连接 ----------
 

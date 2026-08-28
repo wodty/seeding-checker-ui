@@ -40,6 +40,14 @@
   .field.wide { grid-column: 1 / -1; }
   .cfg-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 
+  .client-box { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 10px;
+                background: #fafbfc; }
+  .client-box .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .client-box .hd .t { font-weight: 600; font-size: 13px; }
+  .client-box .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  .client-box select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px;
+                       font-size: 13px; background: #fff; }
+
   .btn { padding: 8px 16px; border-radius: 7px; border: 1px solid var(--border); background: #fff;
          cursor: pointer; font-size: 13px; font-weight: 500; transition: all .15s; }
   .btn:hover { background: #f8f9fa; }
@@ -156,15 +164,13 @@
         <div class="field"><label>大小阈值 MB（0=全部）</label><input id="fThreshold" type="number" value="0"></div>
         <div class="field"><label>回收目录（移回收站时使用）</label><input id="fTrash" placeholder="./trash"></div>
         <div class="field" style="display:flex;align-items:flex-end"><label style="cursor:pointer" title="勾选时跳过软链接；对硬链接只保留第一次出现的文件（避免重复统计），取消勾选则按文件管理器逻辑统计所有路径"><input id="fIgnoreLinks" type="checkbox" checked style="width:auto;vertical-align:-2px;margin-right:6px">忽略软链接/硬链接</label></div>
-        <div class="field"><label>qB 地址</label><input id="fHost" placeholder="192.168.1.100"></div>
-        <div class="field"><label>qB 端口</label><input id="fPort" placeholder="8080"></div>
-        <div class="field"><label>qB 用户名</label><input id="fUser" placeholder="admin"></div>
-        <div class="field"><label>qB 密码</label><input id="fPass" type="password"></div>
-        <div class="field wide"><label>路径映射（容器内路径=NAS路径，逗号分隔）</label>
-          <input id="fMapping" placeholder="/downloads=/vol1/data"></div>
-        <div class="field wide"><label>qB BT_backup 目录（可选，配置后可清理 .torrent 备份）</label>
-          <input id="fBackup" placeholder="/app/qb/BT_backup"></div>
       </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; margin:18px 0 8px">
+        <div style="font-weight:600">下载器（可添加多个，支持 qBittorrent / Transmission）</div>
+        <button class="btn sm" onclick="addClient()">＋ 添加下载器</button>
+      </div>
+      <div id="clientList"></div>
       <div class="cfg-actions">
         <button class="btn primary" onclick="saveCfg()">保存配置</button>
         <button class="btn" onclick="testQB()" id="btnTest">测试连接</button>
@@ -262,12 +268,13 @@
 <div id="toast"></div>
 
 <script>
-const API = { cfg: "/api/config", test: "/api/qb/test", scan: "/api/scan",
+const API = { cfg: "/api/config", test: "/api/clients/test", scan: "/api/scan",
               delFiles: "/api/delete-files", delTorrents: "/api/delete-torrents" };
 
 let S = { tab: "redundant", page: 1, pageSize: 100, redundant: [], missing: [], abnormal: [],
           summary: null, selected: { redundant: new Set(), missing: new Set(), abnormal: new Set() },
           modal: null };
+let CLIENTS = [];   // 下载器实例列表 [{id, type, host, port, username, password, path_mappings, torrent_backup_dir}]
 
 // ---------- 工具 ----------
 function $(id) { return document.getElementById(id); }
@@ -290,6 +297,58 @@ function fmtSize(b) {
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
 function basename(p) { return String(p).split(/[\\/]/).pop(); }
 
+// ---------- 下载器列表 ----------
+function renderClients() {
+  const box = $("clientList");
+  if (!CLIENTS.length) {
+    box.innerHTML = `<div class="muted" style="padding:10px 0">尚未配置下载器，点击「＋ 添加下载器」</div>`;
+    return;
+  }
+  box.innerHTML = "";
+  CLIENTS.forEach((c, i) => {
+    const isQB = (c.type || "qbittorrent") === "qbittorrent";
+    const div = document.createElement("div");
+    div.className = "client-box";
+    div.innerHTML = `
+      <div class="hd">
+        <span class="t">下载器 ${i + 1}</span>
+        <input data-f="id" value="${esc(c.id)}" placeholder="名称（如 qb1）" style="width:120px; padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px">
+        <select data-f="type">
+          <option value="qbittorrent" ${isQB ? "selected" : ""}>qBittorrent</option>
+          <option value="transmission" ${!isQB ? "selected" : ""}>Transmission</option>
+        </select>
+        <span style="flex:1"></span>
+        <button class="btn sm" style="color:var(--danger)" onclick="removeClient(${i})">✕ 移除</button>
+      </div>
+      <div class="grid">
+        <div class="field"><label>地址（不带 http://）</label><input data-f="host" value="${esc(c.host)}" placeholder="192.168.1.100"></div>
+        <div class="field"><label>端口</label><input data-f="port" value="${esc(c.port)}" placeholder="${isQB ? "8080" : "9091"}"></div>
+        <div class="field"><label>用户名</label><input data-f="username" value="${esc(c.username)}" placeholder="admin"></div>
+        <div class="field"><label>密码</label><input data-f="password" type="password" value="${esc(c.password)}"></div>
+        <div class="field" style="grid-column:1/-1"><label>路径映射（该下载器内路径=NAS路径，逗号分隔）</label>
+          <input data-f="path_mappings" value="${esc(c.path_mappings)}" placeholder="/downloads=/vol1/data"></div>
+        ${isQB ? `<div class="field" style="grid-column:1/-1"><label>BT_backup 目录（可选，配置后可清理 .torrent 备份）</label>
+          <input data-f="torrent_backup_dir" value="${esc(c.torrent_backup_dir)}" placeholder="/app/qb/BT_backup"></div>` : ""}
+      </div>`;
+    div.querySelectorAll("[data-f]").forEach(el => {
+      el.addEventListener("input", () => { CLIENTS[i][el.dataset.f] = el.value; if (el.dataset.f === "type") renderClients(); });
+      el.addEventListener("change", () => { CLIENTS[i][el.dataset.f] = el.value; if (el.dataset.f === "type") renderClients(); });
+    });
+    box.appendChild(div);
+  });
+}
+function addClient() {
+  let n = 1;
+  while (CLIENTS.some(c => c.id === `qb${n}`)) n++;
+  CLIENTS.push({ id: `qb${n}`, type: "qbittorrent", host: "", port: "8080",
+                 username: "admin", password: "", path_mappings: "", torrent_backup_dir: "" });
+  renderClients();
+}
+function removeClient(i) {
+  CLIENTS.splice(i, 1);
+  renderClients();
+}
+
 // ---------- 配置 ----------
 async function loadCfg() {
   try {
@@ -299,10 +358,14 @@ async function loadCfg() {
     $("fThreshold").value = c.general?.size_threshold ?? 0;
     $("fTrash").value = c.general?.trash_dir || "./trash";
     $("fIgnoreLinks").checked = (c.general?.ignore_links ?? "true") === "true";
-    $("fHost").value = c.qb?.host || ""; $("fPort").value = c.qb?.port || "8080";
-    $("fUser").value = c.qb?.username || ""; $("fPass").value = c.qb?.password || "";
-    $("fMapping").value = c.qb?.path_mappings || "";
-    $("fBackup").value = c.qb?.torrent_backup_dir || "";
+    CLIENTS = (c.clients || []).map(x => ({
+      id: x.id || "qb1", type: x.type || "qbittorrent",
+      host: x.host || "", port: x.port || (x.type === "transmission" ? "9091" : "8080"),
+      username: x.username || "", password: x.password || "",
+      path_mappings: x.path_mappings || "", torrent_backup_dir: x.torrent_backup_dir || "",
+    }));
+    if (!CLIENTS.length) addClient();
+    renderClients();
     if (c.general?.demo) { $("demoBadge").style.display = "inline-block"; $("connDot").classList.add("offline"); }
   } catch (e) { toast(e.message, "err"); }
 }
@@ -311,9 +374,7 @@ function gatherCfg() {
     general: { nas_directories: $("fNas").value.trim(), exclude_directories: $("fExclude").value.trim(),
                size_threshold: $("fThreshold").value, trash_dir: $("fTrash").value.trim(),
                ignore_links: $("fIgnoreLinks").checked ? "true" : "false" },
-    qb: { host: $("fHost").value.trim(), port: $("fPort").value.trim(),
-          username: $("fUser").value.trim(), password: $("fPass").value,
-          path_mappings: $("fMapping").value.trim(), torrent_backup_dir: $("fBackup").value.trim() }
+    clients: CLIENTS
   };
 }
 async function saveCfg() {
@@ -327,8 +388,11 @@ async function testQB() {
   const btn = $("btnTest"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>测试中';
   try {
     const r = await api(API.test, { method: "POST", headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify(gatherCfg()) });
-    toast(r.message || "连接成功", "ok"); $("connDot").classList.remove("offline");
+                                    body: JSON.stringify({ clients: CLIENTS }) });
+    const okN = (r.results || []).filter(x => x.ok).length;
+    const fail = (r.results || []).filter(x => !x.ok);
+    if (fail.length) toast(`连接成功 ${okN} 个，失败 ${fail.length} 个：` + fail.map(x => `${x.client} ${x.message}`).join("；"), "warn");
+    else { toast(r.message || "全部连接成功", "ok"); $("connDot").classList.remove("offline"); }
   } catch (e) { toast(e.message, "err"); $("connDot").classList.add("offline"); }
   finally { btn.disabled = false; btn.textContent = "测试连接"; }
 }
@@ -376,28 +440,36 @@ function renderDiag() {
   const suggest = d.suggest_mappings || [];
   const lowRate = s.torrents > 0 && d.match_rate < 90;
   const outPaths = (d.qb_save_paths || []).filter(p => !p.in_scope);
-  if (!lowRate && !suggest.length && !(d.qb_samples || []).length && !outPaths.length) { card.style.display = "none"; return; }
+  const clientErrors = d.client_errors || [];
+  if (!lowRate && !suggest.length && !(d.qb_samples || []).length && !outPaths.length && !clientErrors.length) { card.style.display = "none"; return; }
   card.style.display = "";
   let html = "";
-  html += `<div class="kv"><span>路径匹配率</span><b>${d.match_rate}%（${d.matched_files} / ${s.nas_files} 个 NAS 文件能对应到 qB 种子）</b></div>`;
+  if (clientErrors.length) {
+    html += `<div style="margin:6px 0; color:var(--danger); font-weight:600">下载器连接失败：</div>`;
+    clientErrors.forEach(e => {
+      html += `<div class="path-cell">✗ <b>${esc(e.client)}</b>：${esc(e.error)}</div>`;
+    });
+    html += `<div class="muted" style="font-size:12px; margin:4px 0 8px">以上实例本次未参与统计（其他实例正常时结果仍有效），请检查其地址/账号或从配置中移除。</div>`;
+  }
+  html += `<div class="kv"><span>路径匹配率</span><b>${d.match_rate}%（${d.matched_files} / ${s.nas_files} 个 NAS 文件能对应到下载器种子）</b></div>`;
   if (suggest.length) {
     html += `<div style="margin:10px 0 4px; font-weight:600">检测到疑似路径映射（依据同名同大小文件推断）：</div>`;
     suggest.forEach(m => {
       html += `<div style="display:flex; align-items:center; gap:10px; margin:6px 0; flex-wrap:wrap">
         <code style="background:#f1f3f5; padding:4px 10px; border-radius:6px; word-break:break-all">${esc(m.qb_prefix)}=${esc(m.nas_prefix)}</code>
-        <span class="muted">依据 ${m.matches} 个文件</span>
-        <button class="btn sm" data-q="${esc(m.qb_prefix)}" data-n="${esc(m.nas_prefix)}" onclick="applyMap(this.dataset.q, this.dataset.n)">填入路径映射</button>
+        <span class="muted">下载器 ${esc(m.client_id || "?")} · 依据 ${m.matches} 个文件</span>
+        <button class="btn sm" data-q="${esc(m.qb_prefix)}" data-n="${esc(m.nas_prefix)}" data-c="${esc(m.client_id || "")}" onclick="applyMap(this.dataset.q, this.dataset.n, this.dataset.c)">填入路径映射</button>
       </div>`;
     });
     html += `<div class="muted" style="font-size:12px">点击「填入路径映射」后，记得点「保存配置」并重新扫描。</div>`;
   } else if (lowRate) {
-    html += `<div style="margin:8px 0; color:var(--danger)">未能自动推断路径映射，且匹配率偏低 —— 请核对 qB save_path 与 NAS 扫描路径的前缀是否一致（展开下方样例对比）。</div>`;
+    html += `<div style="margin:8px 0; color:var(--danger)">未能自动推断路径映射，且匹配率偏低 —— 请核对下载器 save_path 与 NAS 扫描路径的前缀是否一致（展开下方样例对比）。</div>`;
   }
   if (d.qb_save_paths && d.qb_save_paths.length) {
     const outNote = outPaths.length ? ` · <span style="color:var(--warn)">${outPaths.length} 个不在扫描范围</span>` : "";
-    html += `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer">查看路径样例（qB save_path / 双方未匹配路径对比）${outNote}</summary>
-      <div style="margin-top:6px"><b>qB save_path（共 ${d.qb_save_paths.length} 个）：</b></div>
-      ${d.qb_save_paths.map(p => `<div class="path-cell">${esc(p.path)} <span style="color:${p.in_scope ? "#16a34a" : "var(--warn)"}">${p.in_scope ? "✓ 扫描范围内" : "✗ 不在扫描范围"}</span></div>`).join("")}
+    html += `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer">查看路径样例（下载器 save_path / 双方未匹配路径对比）${outNote}</summary>
+      <div style="margin-top:6px"><b>下载器 save_path（共 ${d.qb_save_paths.length} 个）：</b></div>
+      ${d.qb_save_paths.map(p => `<div class="path-cell">[${esc(p.client || "?")}] ${esc(p.path)} <span style="color:${p.in_scope ? "#16a34a" : "var(--warn)"}">${p.in_scope ? "✓ 扫描范围内" : "✗ 不在扫描范围"}</span></div>`).join("")}
       ${outPaths.length ? `<div class="muted" style="font-size:12px; margin-top:4px">「不在扫描范围」= 该位置未挂载进本容器或未加入 NAS 目录配置，所以这些文件不会参与扫描、不会出现在结果里（不是 bug）。如需扫描，请在 docker-compose 中挂载对应目录，并加入 NAS 目录配置。</div>` : ""}
       <div style="margin-top:6px"><b>NAS 未匹配样例：</b></div>
       ${(d.nas_samples || []).map(p => `<div class="path-cell">${esc(p)}</div>`).join("") || "<div class='muted'>(无)</div>"}
@@ -407,12 +479,15 @@ function renderDiag() {
   }
   body.innerHTML = html;
 }
-function applyMap(q, n) {
-  const cur = $("fMapping").value.trim();
+function applyMap(q, n, clientId) {
+  const c = (clientId && CLIENTS.find(x => x.id === clientId)) || CLIENTS[0];
+  if (!c) { toast("请先添加下载器", "warn"); return; }
+  const cur = (c.path_mappings || "").trim();
   const item = `${q}=${n}`;
   if (cur.split(/[,，]/).map(x => x.trim()).includes(item)) { toast("该映射已存在"); return; }
-  $("fMapping").value = cur ? cur + "," + item : item;
-  toast("已填入，请点击「保存配置」后重新扫描", "ok");
+  c.path_mappings = cur ? cur + "," + item : item;
+  renderClients();
+  toast(`已填入下载器「${c.id}」的路径映射，请点击「保存配置」后重新扫描`, "ok");
 }
 async function loadVersion() {
   try {
@@ -471,7 +546,7 @@ function render() {
     arr.forEach(m => {
       const tr = document.createElement("tr");
       tr.innerHTML = `<td><input type="checkbox" data-key="${esc(m.torrent_hash)}" ${sel.has(m.torrent_hash) ? "checked" : ""} onchange="toggleOne('abnormal', this.dataset.key, this.checked)"></td>
-        <td class="name-cell" title="${esc(m.torrent_name)}">${esc(m.torrent_name)}</td>
+        <td class="name-cell" title="${esc(m.torrent_name)}">${esc(m.torrent_name)} <span class="muted" style="font-size:11px">[${esc(m.client_id || "?")}]</span></td>
         <td><span class="badge red">${esc(m.state_label || m.torrent_state)}</span></td>
         <td class="path-cell">${esc(m.nas_path)}</td>
         <td class="right">${fmtSize(m.file_size)}</td>
@@ -485,7 +560,7 @@ function render() {
                      : (m.torrent_state || "").includes("paused") ? "amber" : "green";
       const tr = document.createElement("tr");
       tr.innerHTML = `<td><input type="checkbox" data-key="${esc(m.torrent_hash)}" ${sel.has(m.torrent_hash) ? "checked" : ""} onchange="toggleOne('missing', this.dataset.key, this.checked)"></td>
-        <td class="name-cell" title="${esc(m.torrent_name)}">${esc(m.torrent_name)}</td>
+        <td class="name-cell" title="${esc(m.torrent_name)}">${esc(m.torrent_name)} <span class="muted" style="font-size:11px">[${esc(m.client_id || "?")}]</span></td>
         <td><span class="badge ${stateCls}">${esc(m.state_label || m.torrent_state)}</span></td>
         <td class="path-cell">${esc(m.nas_path)}</td>
         <td class="right">${fmtSize(m.file_size)}</td>
@@ -559,11 +634,11 @@ function openDeleteModal(tab, scope, singleKey) {
     const abn = tab === "abnormal";
     html += `<div class="kv"><span>种子数量</span><b>${targets.length} 个</b></div>
       <div class="kv"><span>关联文件大小</span><b>${fmtSize(total)}</b></div>
-      <div class="kv"><span>操作</span><b>从 qBittorrent 移除种子记录（默认不删任何文件）</b></div>
+      <div class="kv"><span>操作</span><b>从所属下载器移除种子记录（默认不删任何文件）</b></div>
       <label class="opt danger-opt"><input type="checkbox" id="delLocalFiles" onchange="riskTxt()">
         <span><span class="t">同时删除本地文件（危险）</span><br><span class="d">关联文件将从磁盘上删除，不可恢复！默认不勾选</span></span></label>
       <label class="opt"><input type="checkbox" id="delTorrentBackup">
-        <span><span class="t">同时清理 .torrent 备份</span><br><span class="d">需要已配置 qB BT_backup 目录</span></span></label>
+        <span><span class="t">同时清理 .torrent 备份</span><br><span class="d">仅 qBittorrent 实例，需已配置 BT_backup 目录</span></span></label>
       <div class="risk" id="riskBox">⚠ ${abn ? "移除后该异常种子将从列表消失，NAS 上的文件不受影响。" : "移除后该种子将从做种列表消失，PT 站点会停止统计该种子的做种。如需重新做种请保留 .torrent 文件。"}</div>`;
   }
   html += `<label class="confirm-line"><input type="checkbox" id="agreeRisk" onchange="agreeChange()">
