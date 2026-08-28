@@ -172,7 +172,7 @@
       </div>
       <div id="clientList"></div>
       <div class="cfg-actions">
-        <button class="btn primary" onclick="saveCfg()">保存配置</button>
+        <button class="btn primary" onclick="saveCfg().catch(e => toast(e.message, 'err'))">保存配置</button>
         <button class="btn" onclick="testQB()" id="btnTest">测试连接</button>
         <button class="btn" onclick="scan()" id="btnScan" style="font-weight:600">🔍 开始扫描</button>
       </div>
@@ -378,11 +378,10 @@ function gatherCfg() {
   };
 }
 async function saveCfg() {
-  try {
-    await api(API.cfg, { method: "POST", headers: { "Content-Type": "application/json" },
-                         body: JSON.stringify(gatherCfg()) });
-    toast("配置已保存");
-  } catch (e) { toast(e.message, "err"); }
+  const r = await api(API.cfg, { method: "POST", headers: { "Content-Type": "application/json" },
+                                 body: JSON.stringify(gatherCfg()) });
+  toast("配置已保存");
+  return r;
 }
 async function testQB() {
   const btn = $("btnTest"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>测试中';

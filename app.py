@@ -129,7 +129,8 @@ def load_clients_config(cfg):
                 continue
             clients.append(dict(cfg.items(cid), id=cid))
     elif cfg.has_section("qb"):
-        # 旧版单 qB 配置自动迁移（不写回文件，读时生效）
+        # 旧版单 qB 配置自动迁移（不写回文件，读时生效）。
+        # 实例 id 沿用 "qb"（保存时 [downloader]+[qb] 新格式落盘，qb 是合法 id 而非保留字）
         clients.append(dict(cfg.items("qb"), id="qb", type="qbittorrent"))
         logger.info("检测到旧版 [qb] 单下载器配置，按实例 qb 处理（保存后自动迁移为新格式）")
     return clients
@@ -146,8 +147,10 @@ def save_clients_config(cfg, clients):
         cid = str(c.get("id", "")).strip()
         if not cid or not _re.fullmatch(r"[A-Za-z0-9_]+", cid):
             raise HTTPException(status_code=400, detail=f"无效的下载器名称: {cid!r}（仅限字母/数字/下划线）")
-        if cid in ("general", "downloader", "qb"):
+        if cid in ("general", "downloader"):
             raise HTTPException(status_code=400, detail=f"下载器名称不能是保留字: {cid}")
+        if cid in new_ids:
+            raise HTTPException(status_code=400, detail=f"下载器名称重复: {cid}")
         new_ids.append(cid)
     old_ids = [c["id"] for c in load_clients_config(cfg)]
     for old in set(old_ids) - set(new_ids):
